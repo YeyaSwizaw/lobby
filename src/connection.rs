@@ -1,4 +1,4 @@
-use std::net::{TcpStream, SocketAddr, Shutdown};
+use std::net::{TcpStream, SocketAddr};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::io::{Write, BufRead, BufReader, ErrorKind, Result};
@@ -6,12 +6,7 @@ use std::thread;
 
 use vec_map::VecMap;
 
-#[derive(Debug, Clone)]
-pub enum Message {
-    ConnectionReceived(usize, SocketAddr),
-    ConnectionLost(usize, SocketAddr),
-    DataReceived(usize, String)
-}
+use message::Message;
 
 pub struct Connection {
     stream: TcpStream,
@@ -19,7 +14,7 @@ pub struct Connection {
 
 impl Connection {
     pub fn spawn(id: usize, stream: TcpStream, addr: SocketAddr, connections: Arc<Mutex<VecMap<Connection>>>, tx: Sender<Message>) -> Connection {
-        tx.send(Message::ConnectionReceived(id, addr)).unwrap();
+        tx.send(Message::connection_received(id, addr)).unwrap();
 
         let mut reader = BufReader::new(stream.try_clone().unwrap());
         let mut buf = String::new();
@@ -27,12 +22,12 @@ impl Connection {
         thread::spawn(move || loop {
             match reader.read_line(&mut buf) {
                 Ok(len) if len > 0 => {
-                    tx.send(Message::DataReceived(id, buf.clone())).unwrap();
+                    tx.send(Message::data_received(id, buf.clone())).unwrap();
                 }
 
                 Err(ref e) if e.kind() != ErrorKind::WouldBlock => {
                     connections.lock().unwrap().remove(id);
-                    tx.send(Message::ConnectionLost(id, addr)).unwrap();
+                    tx.send(Message::connection_lost(id, addr)).unwrap();
                     break
                 },
 

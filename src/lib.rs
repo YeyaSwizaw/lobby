@@ -10,9 +10,12 @@ use std::thread;
 
 use vec_map::VecMap;
 
-use connection::{Connection, Message};
+use connection::Connection;
 
 mod connection;
+mod message;
+
+pub use message::Message;
 
 pub struct Lobby {
     listener_tx: Sender<()>,
@@ -33,6 +36,7 @@ impl Lobby {
         let thread_conns = connections.clone();
 
         thread::spawn(move || {
+            let connections = thread_conns;
             let mut id = 0;
 
             loop {
@@ -42,8 +46,8 @@ impl Lobby {
 
                 if let Ok((stream, addr)) = listener.accept() {
                     let tx = tx.clone();
-                    let conn = Connection::spawn(id, stream, addr, thread_conns.clone(), tx);
-                    thread_conns.lock().unwrap().insert(id, conn);
+                    let conn = Connection::spawn(id, stream, addr, connections.clone(), tx);
+                    connections.lock().unwrap().insert(id, conn);
                     id += 1;
                 }
             }
@@ -60,20 +64,30 @@ impl Lobby {
         self.message_rx.try_iter()
     }
 
-    pub fn send(&self, data: &[u8]) -> std::result::Result<(), Vec<(usize, Error)>> {
+    pub fn send_to_pred<P: Fn(usize) -> bool>(&self, pred: P, data: &[u8]) -> std::result::Result<(), Vec<(usize, Error)>> {
         let mut errors = Vec::new();
 
         for conn in self.connections.lock().unwrap().iter_mut() {
-            if let Err(e) = conn.1.send(data) {
-                errors.push((conn.0, e));
+            if pred(conn.0) {
+                if let Err(e) = conn.1.send(data) {
+                    errors.push((conn.0, e));
+                }
             }
         }
 
-        if errors.len() > 0 {
+        if !errors.is_empty() {
             Err(errors)
         } else {
             Ok(())
         }
+    }
+
+    pub fn send_to_except(&self, except: usize, data: &[u8]) -> std::result::Result<(), Vec<(usize, Error)>> {
+        self.send_to_pred(move |id| id != except, data)
+    }
+
+    pub fn send(&self, data: &[u8]) -> std::result::Result<(), Vec<(usize, Error)>> {
+        self.send_to_pred(|_| true, data)
     }
 }
 
