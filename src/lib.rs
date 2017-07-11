@@ -21,13 +21,13 @@ use serde_json::to_vec;
 use connection::Connection;
 
 mod connection;
-mod message;
+mod event;
 
-pub use message::{Message, MessageKind};
+pub use event::{Event, EventKind};
 
 pub struct Lobby<Data> {
     listener_tx: Sender<()>,
-    message_rx: Receiver<Message<Data>>,
+    event_rx: Receiver<Event<Data>>,
 
     connections: Arc<Mutex<VecMap<Connection>>>
 }
@@ -38,7 +38,7 @@ impl<Data> Lobby<Data> where Data: 'static + Send + DeserializeOwned {
         listener.set_nonblocking(true)?;
 
         let (listener_tx, rx) = channel();
-        let (tx, message_rx) = channel();
+        let (tx, event_rx) = channel();
 
         let connections = Arc::new(Mutex::new(VecMap::new()));
         let thread_conns = connections.clone();
@@ -63,13 +63,13 @@ impl<Data> Lobby<Data> where Data: 'static + Send + DeserializeOwned {
 
         Ok(Lobby {
             listener_tx,
-            message_rx,
+            event_rx,
             connections
         })
     }
 
-    pub fn messages<'a>(&'a self) -> impl Iterator<Item=Message<Data>> + 'a {
-        self.message_rx.try_iter()
+    pub fn events<'a>(&'a self) -> impl Iterator<Item=Event<Data>> + 'a {
+        self.event_rx.try_iter()
     }
 
     pub fn send_to_pred<D, P>(&self, pred: P, data: &D) -> Result<(), Vec<(usize, Error)>> 

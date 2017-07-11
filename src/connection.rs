@@ -10,7 +10,7 @@ use serde::de::DeserializeOwned;
 
 use serde_json::Deserializer;
 
-use message::Message;
+use event::Event;
 
 pub struct Connection {
     stream: TcpStream,
@@ -22,29 +22,44 @@ impl Connection {
         stream: TcpStream, 
         addr: SocketAddr, 
         connections: Arc<Mutex<VecMap<Connection>>>, 
-        tx: Sender<Message<Data>>
+        tx: Sender<Event<Data>>
     ) -> Connection
     where 
         Data: 'static + Send + DeserializeOwned 
     {
-        tx.send(Message::connection_received(id, addr)).unwrap();
+        tx.send(Event::connection_received(id, addr)).unwrap();
 
         let thread_stream = stream.try_clone().unwrap();
         thread_stream.set_nonblocking(false).unwrap();
 
-        thread::spawn(move || loop {
-            let mut de = Deserializer::from_reader(thread_stream.try_clone().unwrap());
-            match Data::deserialize(&mut de) {
-                Ok(data) => tx.send(Message::data_received(id, data)).unwrap(),
-
-                Err(ref e) if e.is_io() => {
-                    connections.lock().unwrap().remove(id);
-                    tx.send(Message::connection_lost(id, addr)).unwrap();
+        thread::spawn(move || {
+            let mut errors = 0;
+            
+            loop {
+                if errors > 10 {
                     break
-                },
+                }
 
-                Err(e) => tx.send(Message::data_error(id, e)).unwrap()
+                let mut de = Deserializer::from_reader(thread_stream.try_clone().unwrap());
+                match Data::deserialize(&mut de) {
+                    Ok(data) => {
+                        tx.send(Event::data_received(id, data)).unwrap();
+                        errors = 0;
+                    },
+
+                    Err(ref e) if e.is_io() => {
+                        break
+                    },
+
+                    Err(e) => {
+                        tx.send(Event::data_error(id, e)).unwrap();
+                        errors += 1;
+                    }
+                }
             }
+
+            connections.lock().unwrap().remove(id);
+            tx.send(Event::connection_lost(id, addr)).unwrap();
         });
 
         Connection { 
