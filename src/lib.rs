@@ -2,7 +2,10 @@
 
 extern crate vec_map;
 
-use std::io::{Error, Result};
+extern crate serde_json;
+extern crate serde;
+
+use std::io::{Error, self};
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::sync::{Arc, Mutex};
 use std::net::{ToSocketAddrs, TcpListener};
@@ -10,22 +13,27 @@ use std::thread;
 
 use vec_map::VecMap;
 
+use serde::ser::Serialize;
+use serde::de::DeserializeOwned;
+
+use serde_json::to_vec;
+
 use connection::Connection;
 
 mod connection;
 mod message;
 
-pub use message::Message;
+pub use message::{Message, MessageKind};
 
-pub struct Lobby {
+pub struct Lobby<Data> {
     listener_tx: Sender<()>,
-    message_rx: Receiver<Message>,
+    message_rx: Receiver<Message<Data>>,
 
     connections: Arc<Mutex<VecMap<Connection>>>
 }
 
-impl Lobby {
-    pub fn spawn<A: ToSocketAddrs>(addr: A) -> Result<Lobby> {
+impl<Data> Lobby<Data> where Data: 'static + Send + DeserializeOwned {
+    pub fn spawn<A: ToSocketAddrs>(addr: A) -> io::Result<Lobby<Data>> {
         let listener = TcpListener::bind(addr)?;
         listener.set_nonblocking(true)?;
 
@@ -60,38 +68,43 @@ impl Lobby {
         })
     }
 
-    pub fn messages<'a>(&'a self) -> impl Iterator<Item=Message> + 'a {
+    pub fn messages<'a>(&'a self) -> impl Iterator<Item=Message<Data>> + 'a {
         self.message_rx.try_iter()
     }
 
-    pub fn send_to_pred<P: Fn(usize) -> bool>(&self, pred: P, data: &[u8]) -> std::result::Result<(), Vec<(usize, Error)>> {
+    pub fn send_to_pred<D, P>(&self, pred: P, data: &D) -> Result<(), Vec<(usize, Error)>> 
+    where 
+        P: Fn(usize) -> bool,
+        D: Serialize
+    {
         let mut errors = Vec::new();
+        let data = to_vec(data).unwrap();
 
         for conn in self.connections.lock().unwrap().iter_mut() {
             if pred(conn.0) {
-                if let Err(e) = conn.1.send(data) {
+                if let Err(e) = conn.1.send(&data) {
                     errors.push((conn.0, e));
                 }
             }
         }
 
-        if !errors.is_empty() {
-            Err(errors)
-        } else {
+        if errors.is_empty() {
             Ok(())
+        } else {
+            Err(errors)
         }
     }
 
-    pub fn send_to_except(&self, except: usize, data: &[u8]) -> std::result::Result<(), Vec<(usize, Error)>> {
+    pub fn send_to_except<D>(&self, except: usize, data: &D) -> Result<(), Vec<(usize, Error)>> where D: Serialize {
         self.send_to_pred(move |id| id != except, data)
     }
 
-    pub fn send(&self, data: &[u8]) -> std::result::Result<(), Vec<(usize, Error)>> {
+    pub fn send<D>(&self, data: &D) -> Result<(), Vec<(usize, Error)>> where D: Serialize {
         self.send_to_pred(|_| true, data)
     }
 }
 
-impl Drop for Lobby {
+impl<Data> Drop for Lobby<Data> {
     fn drop(&mut self) {
         self.listener_tx.send(()).unwrap();
     }

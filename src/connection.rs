@@ -1,10 +1,14 @@
 use std::net::{TcpStream, SocketAddr};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
-use std::io::{Write, BufRead, BufReader, ErrorKind, Result};
+use std::io::{Write, Result};
 use std::thread;
 
 use vec_map::VecMap;
+
+use serde::de::DeserializeOwned;
+
+use serde_json::Deserializer;
 
 use message::Message;
 
@@ -13,32 +17,38 @@ pub struct Connection {
 }
 
 impl Connection {
-    pub fn spawn(id: usize, stream: TcpStream, addr: SocketAddr, connections: Arc<Mutex<VecMap<Connection>>>, tx: Sender<Message>) -> Connection {
+    pub fn spawn<Data>(
+        id: usize, 
+        stream: TcpStream, 
+        addr: SocketAddr, 
+        connections: Arc<Mutex<VecMap<Connection>>>, 
+        tx: Sender<Message<Data>>
+    ) -> Connection
+    where 
+        Data: 'static + Send + DeserializeOwned 
+    {
         tx.send(Message::connection_received(id, addr)).unwrap();
 
-        let mut reader = BufReader::new(stream.try_clone().unwrap());
-        let mut buf = String::new();
+        let thread_stream = stream.try_clone().unwrap();
+        thread_stream.set_nonblocking(false).unwrap();
 
         thread::spawn(move || loop {
-            match reader.read_line(&mut buf) {
-                Ok(len) if len > 0 => {
-                    tx.send(Message::data_received(id, buf.clone())).unwrap();
-                }
+            let mut de = Deserializer::from_reader(thread_stream.try_clone().unwrap());
+            match Data::deserialize(&mut de) {
+                Ok(data) => tx.send(Message::data_received(id, data)).unwrap(),
 
-                Err(ref e) if e.kind() != ErrorKind::WouldBlock => {
+                Err(ref e) if e.is_io() => {
                     connections.lock().unwrap().remove(id);
                     tx.send(Message::connection_lost(id, addr)).unwrap();
                     break
                 },
 
-                _ => ()
+                Err(e) => tx.send(Message::data_error(id, e)).unwrap()
             }
-
-            buf.clear();
         });
 
-        Connection {
-            stream,
+        Connection { 
+            stream 
         }
     }
 

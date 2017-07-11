@@ -5,3 +5,5 @@ authors = ["Samuel Sleight <samuel.sleight@gmail.com>"]
 
 [dependencies]
 vec_map = "*"
+serde = "1.0"
+serde_json = "1.0"
