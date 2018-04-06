@@ -1,5 +1,3 @@
-#![feature(conservative_impl_trait)]
-
 extern crate vec_map;
 
 extern crate serde_json;
@@ -72,13 +70,13 @@ impl<Data> Lobby<Data> where Data: 'static + Send + DeserializeOwned {
         self.event_rx.try_iter()
     }
 
-    pub fn send_to_pred<D, P>(&self, pred: P, data: &D) -> Result<(), Vec<(usize, Error)>> 
+    pub fn send_to_pred<D, P>(&self, pred: P, data: D) -> Result<(), Vec<(usize, Error)>>
     where 
         P: Fn(usize) -> bool,
         D: Serialize
     {
         let mut errors = Vec::new();
-        let data = to_vec(data).unwrap();
+        let data = to_vec(&data).unwrap();
 
         for conn in self.connections.lock().unwrap().iter_mut() {
             if pred(conn.0) {
@@ -95,11 +93,11 @@ impl<Data> Lobby<Data> where Data: 'static + Send + DeserializeOwned {
         }
     }
 
-    pub fn send_to_except<D>(&self, except: usize, data: &D) -> Result<(), Vec<(usize, Error)>> where D: Serialize {
+    pub fn send_to_except<D>(&self, except: usize, data: D) -> Result<(), Vec<(usize, Error)>> where D: Serialize {
         self.send_to_pred(move |id| id != except, data)
     }
 
-    pub fn send<D>(&self, data: &D) -> Result<(), Vec<(usize, Error)>> where D: Serialize {
+    pub fn send<D>(&self, data: D) -> Result<(), Vec<(usize, Error)>> where D: Serialize {
         self.send_to_pred(|_| true, data)
     }
 }
