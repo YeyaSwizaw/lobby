@@ -97,6 +97,10 @@ impl<Data> Lobby<Data> where Data: 'static + Send + DeserializeOwned {
         self.send_to_pred(move |id| id != except, data)
     }
 
+    pub fn send_to<D>(&self, to: usize, data: D) -> Result<(), Vec<(usize, Error)>> where D: Serialize {
+        self.send_to_pred(move |id| id == to, data)
+    }
+
     pub fn send<D>(&self, data: D) -> Result<(), Vec<(usize, Error)>> where D: Serialize {
         self.send_to_pred(|_| true, data)
     }
