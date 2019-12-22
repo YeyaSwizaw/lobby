@@ -16,12 +16,12 @@ use serde::de::DeserializeOwned;
 
 use serde_json::to_vec;
 
-use connection::Connection;
+use crate::connection::Connection;
 
 mod connection;
 mod event;
 
-pub use event::{Event, EventKind};
+pub use crate::event::{Event, EventKind};
 
 pub struct Lobby<Data> {
     listener_tx: Sender<()>,

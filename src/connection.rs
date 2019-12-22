@@ -10,7 +10,7 @@ use serde::de::DeserializeOwned;
 
 use serde_json::Deserializer;
 
-use event::Event;
+use crate::event::Event;
 
 pub struct Connection {
     stream: TcpStream,
