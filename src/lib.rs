@@ -1,8 +1,3 @@
-extern crate vec_map;
-
-extern crate serde_json;
-extern crate serde;
-
 use std::io::{Error, self};
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::sync::{Arc, Mutex};
